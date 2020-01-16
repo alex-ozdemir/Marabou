@@ -3,14 +3,23 @@
 """gg-Marabou test runner
 
 Usage:
-  runner.py run (--lambda | --specific | --local) <net_num> <prop_num>
+  runner.py run [options] <net_num> <prop_num>
   runner.py list
   runner.py (-h | --help)
+
 Options:
-  --lambda     Run the lambda benchmarks
-  --local      Run the local benchmarks
-  --specific   Run just one benchmark
-  -h --help    Show this screen.
+  --jobs N              The number of jobs [default: 1]
+  --initial-divides N   The initial number of divides [default: 0]
+  --divide-strategy S   The divide strategy [default: largest-interval]
+  --timeout N           How long to try for (s) [default: 3600]
+  --initial-timeout N   How long to try for (s) before splitting [default: 5]
+  --timeout-factor N    How long to multiply the initial_timeout by each split [default: 1.5]
+  --infra I             gg-local, gg-lambda, or thread [default: gg-local]
+  --trial N             the trial number to run [default: 0]
+  --lambda              Run the lambda benchmarks
+  --local               Run the local benchmarks
+  --specific            Run just one benchmark
+  -h --help             Show this screen.
 """
 from copy import deepcopy
 from docopt import docopt
@@ -32,6 +41,29 @@ class Infra(Enum):
     THREAD = 1
     GG_LOCAL = 2
     GG_LAMBDA = 3
+
+INFRA_STRINGS = {
+        'thread': Infra.THREAD,
+        'gg-local': Infra.GG_LOCAL,
+        'gg-lambda': Infra.GG_LAMBDA,
+}
+
+def infra_from_string(s):
+    assert s in list(INFRA_STRINGS.keys()) + [None], "Invalid --infra"
+    return INFRA_STRINGS[s] if s in INFRA_STRINGS else None
+
+LARGEST_INTERVAL =  'largest-interval'
+SPLIT_RELU =  'split-relu'
+
+# When you add a field to RunInputs, add it here, so that you stay backwards compatible
+RUN_INPUT_ADDITIONS = [
+        'trial',
+]
+RUN_INPUT_DEFAULTS = {
+        'trial': 0,
+
+}
+RUN_INPUT_DEFAULT_LIST = [RUN_INPUT_DEFAULTS[p] for p in RUN_INPUT_ADDITIONS]
 
 
 class RunInputs(object):
@@ -56,7 +88,23 @@ class RunInputs(object):
         return f'{abs_marabou_repo()}/gg/acas-properties/{self.prop}'
 
     def __str__(self):
-        return f'{self.net}-{self.prop}-{self.infra}-{self.jobs}-{self.initial_divides}-{self.divides}-{self.timeout}-{self.initial_timeout}-{self.timeout_factor}-{self.trial}'
+        return self.dash_string(0)
+
+    def key_props(self):
+        return [ self.net,
+            self.prop,
+            self.infra,
+            self.jobs,
+            self.initial_divides,
+            self.divides,
+            self.timeout,
+            self.initial_timeout,
+            self.timeout_factor,
+            self.trial]
+
+    def dash_string(self, missing = 0):
+        displayed = self.key_props()
+        return '-'.join(str(d).replace('-','') for d in (displayed[:-missing] if missing > 0 else displayed))
 
     def get_marabou_hash(self):
         cp = sub.run([self.marabou, '--version'], stdout = sub.PIPE, check = True)
@@ -71,6 +119,22 @@ class RunInputs(object):
             return self.run_as_gg()
         else:
             assert False, f'Unsupport infra {self.infra}'
+
+    def run_data_dir(self):
+        existing = set([])
+        for n_missing_attrs in reversed(range(1, len(RUN_INPUT_ADDITIONS) + 1)):
+            path = os.path.join(DATA, self.dash_string(n_missing_attrs))
+            if self.key_props()[-n_missing_attrs:] == RUN_INPUT_ADDITIONS[-n_missing_attrs]:
+                if os.path.exists(path):
+                    existing.add(path)
+        if len(existing) > 1:
+            pstring = ''.join('\n\t' + str(o) for o in existing)
+            assert False, f"Multiple paths match {self}:{pstring}"
+        elif len(existing) == 1:
+            return list(existing)[0]
+        else:
+            return os.path.join(DATA, self.dash_string(n_missing_attrs))
+
 
     def run_as_gg(self):
         this_data_dir = os.path.join(DATA, str(self))
@@ -296,21 +360,31 @@ if __name__ == '__main__':
         prop_num = arguments['<prop_num>']
         net = f'ACASXU_run2a_{net_num}_batch_2000.nnet'
         prop = f'property{prop_num}.txt'
+        jobs = int(arguments['--jobs'])
+        initial_divides = int(arguments['--initial-divides'])
+        timeout = int(arguments['--timeout'])
+        initial_timeout = int(arguments['--initial-timeout'])
+        timeout_factor = float(arguments['--timeout-factor'])
+        divide_strategy = arguments['--divide-strategy']
+        assert divide_strategy in [SPLIT_RELU, LARGEST_INTERVAL]
+        infra = infra_from_string(arguments['--infra'])
+        trial = int(arguments['--trial'])
         i = RunInputs(
                 net,
                 prop,
-                Infra.GG_LAMBDA,
-                4,
+                infra,
+                jobs,
+                initial_divides,
                 2,
-                2,
-                60 * 60,
-                5,
-                1.5)
+                timeout,
+                initial_timeout,
+                timeout_factor,
+                trial)
         I = []
         if arguments['--specific']:
-            I += with_all_jobs_counts([i], [512])
+            I += [i]
         elif arguments['--lambda']:
-            I += with_n_trials(with_all_jobs_counts([i], list(reversed([8, 16, 32, 64, 128, 256, 512]))), 3)
+            I += with_n_trials(with_all_jobs_counts([i], list(reversed([4, 8, 16, 32, 64, 128, 256, 512]))), 3)
         elif arguments['--local']:
             I += with_n_trials(with_all_jobs_counts(with_local_infras([i]), list(reversed([4, 8, 16]))), 3)
         else:

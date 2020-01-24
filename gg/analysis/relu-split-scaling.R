@@ -1,11 +1,14 @@
 library(tidyverse)
 
 data <- read_csv("./relu-split-scaling-raw.csv")
+data[data == "Infra.GG_LOCAL"] <- "gg-local"
+data[data == "Infra.GG_LAMBDA"] <- "gg-lambda"
+data[data == "Infra.THREAD"] <- "thread"
 benches <- c("20x20")
 regex <- str_c(benches, collapse="|")
 right_benches <- data %>% filter(grepl(regex, net)) %>% filter(initial_timeout==80)
 no_outliers <- right_benches %>%
-  filter(jobs < 32 | grepl("LAM", infra)) %>%
+  filter(jobs < 32 | grepl("lambda", infra)) %>%
   # Outliers
   filter(trial != 0 | !grepl("2_6", net) | jobs !=512) %>%
   filter(trial != 0 | !grepl("3_5", net) | jobs !=1000) %>%
@@ -29,11 +32,11 @@ ggplot(series, aes(x = jobs, y = rt_mean_net, linetype = infra)) +
   scale_x_continuous(trans='log2') +
   scale_y_continuous(trans='log2', limits =c(32, 4096)) +
   labs(
-    title = "Runtime improvement as parallelism grows",
+    title = "Scalability of relu splitting",
     y = "Runtime (s)",
-    x = "Number of Workers",
+    x = "Number of workers",
     linetype = "Infrastructure",
-    color = "Split Strategy"
+    color = "Split strategy"
   )
-ggsave("relu-split-scaling.pdf", width = 5, height = 4, units="in")
+ggsave("relu-split-scaling.pdf", width = 4, height = 4, units="in")
 write_csv(series, "./relu-split-scaling.csv")

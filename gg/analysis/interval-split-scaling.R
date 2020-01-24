@@ -38,5 +38,5 @@ ggplot(series, aes(x = jobs, y = rt_mean_net, linetype = infra)) +
     linetype = "Infrastructure",
     color = "Split strategy"
   )
-ggsave("interval-split-scaling.pdf", width = 4, height = 4, units="in")
+ggsave("interval-split-scaling.pdf", width = 4, height = 3, units="in")
 write_csv(series, "./interval-split-scaling.csv")

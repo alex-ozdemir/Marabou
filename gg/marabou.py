@@ -19,6 +19,14 @@ gg.install(marabou)
 
 out_prefix = "subproperty"
 
+def result_as_sat(s: str):
+    s = s.split()[0]
+    if s == "sat":
+        return True
+    elif s == "unsat":
+        return False
+    else:
+        raise ValueError("Bad result: "+s)
 
 def split_outputs(_net: pygg.Value, _prop: pygg.Value, n: int) -> List[str]:
     return [f"{out_prefix}{i}" for i in range(2 ** n)]
@@ -52,25 +60,37 @@ def solve(
     n: int,
     timeout: float,
     timeout_factor: float,
+    max_depth: int,
     fut : int
 ) -> pygg.Output:
     output = "TIMEOUT"
     if initial_divides == 0:
+        to = min(timeout if max_depth > 0 else 14.5 * 60, 14.5 * 60)
         args = [
             gg.bin(marabou).path(),
             net.path(),
             prop.path(),
-            "--timeout",
-            str(int(timeout)),
+            #"--dnc",
+            #"--initial-divides",
+            #"0",
+            #"--timeout",
+            #str(int(0.5 + to)),
+            #"--initial-timeout",
+            #str(2 + int(0.5 + timeout)),
+            #"--num-worker",
+            #"1",
             "--summary-file",
             "out",
             "--verbosity",
             "0",
         ]
-        sub.check_call(args)
-        with open("out", "r") as f:
-            output = f.read()
-        os.remove("out")
+        try:
+            sub.check_call(args, timeout = to)
+            with open("out", "r") as f:
+                output = f.read()
+            os.remove("out")
+        except sub.TimeoutExpired as e:
+            pass
     if "unsat" in output:
         return gg.str_value("unsat\n")
     if "sat" in output:
@@ -88,8 +108,9 @@ def solve(
                     split_thunk[o],
                     0,
                     n,
-                    timeout * timeout_factor,
+                    timeout * timeout_factor if initial_divides == 0 else timeout,
                     timeout_factor,
+                    max_depth - 1,
                     fut
                 )
             )
@@ -100,10 +121,10 @@ def solve(
 
 @gg.thunk_fn()
 def merge(r1: Optional[pygg.Value], r2: Optional[pygg.Value]) -> pygg.Output:
-    if r2 is not None and "sat" in r2.as_str():
+    if r2 is not None and result_as_sat(r2.as_str()):
         # r2 is SAT, return SAT
         return r2
-    elif r1 is not None and "sat" in r1.as_str():
+    elif r1 is not None and result_as_sat(r1.as_str()):
         # see aboce
         return r1
     elif r1 is None or r2 is None:
@@ -117,7 +138,7 @@ def merge(r1: Optional[pygg.Value], r2: Optional[pygg.Value]) -> pygg.Output:
 def merge_no_fut(r1: pygg.Value, r2: pygg.Value) -> pygg.Output:
     r1_str = r1.as_str()
     r2_str = r2.as_str()
-    if "unsat" in r1_str and "unsat" in r2_str:
+    if not result_as_sat(r1_str) and not result_as_sat(r2_str) :
         return r1
     else:
         return gg.str_value("sat\n")

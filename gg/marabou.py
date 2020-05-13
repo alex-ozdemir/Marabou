@@ -97,8 +97,10 @@ def solve(
         return gg.str_value("sat\n")
     if "TIMEOUT" in output:
         divides = n if initial_divides == 0 else initial_divides
-        split_thunk = gg.thunk(split, net, prop, divides)
-        split_os = split_outputs(net, prop, divides)
+        # limit response size...
+        capped_divides = min(7, divides)
+        split_thunk = gg.thunk(split, net, prop, capped_divides)
+        split_os = split_outputs(net, prop, capped_divides)
         sub_solve_thunks = []
         for o in split_os:
             sub_solve_thunks.append(
@@ -106,7 +108,7 @@ def solve(
                     solve,
                     net,
                     split_thunk[o],
-                    0,
+                    divides - capped_divides,
                     n,
                     timeout * timeout_factor if initial_divides == 0 else timeout,
                     timeout_factor,
